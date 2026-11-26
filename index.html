@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>💓 Cindy 💓</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: pointer; }
+  #musicBtn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    background: rgba(255, 77, 109, 0.22);
+    border: 1px solid rgba(255, 128, 171, 0.45);
+    color: #fff;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: transform 0.2s, background 0.2s;
+  }
+  #musicBtn:hover {
+    background: rgba(255, 77, 109, 0.4);
+    transform: scale(1.05);
+  }
+</style>
+</head>
+<body>
+<audio id="bgm" src="cundy.mp3" loop preload="auto"></audio>
+<button id="musicBtn" aria-label="Controlar música">🔇 Activar música</button>
+<canvas id="c"></canvas>
+
+<script>
+/* ===== MÚSICA (AUTOPLAY + RESPALDO AL PRIMER TOQUE) ===== */
+const bgm = document.getElementById("bgm");
+const musicBtn = document.getElementById("musicBtn");
+let audioStarted = false;
+
+function updateMusicBtn() {
+  musicBtn.textContent = bgm.paused ? "🔇 Activar música" : "🔊 Música";
+}
+
+function tryPlayAudio() {
+  bgm.play().then(() => {
+    audioStarted = true;
+    updateMusicBtn();
+  }).catch(() => {
+    // El navegador bloqueó el inicio automático; esperará el primer clic/toque
+    updateMusicBtn();
+  });
+}
+
+// Intentar reproducir apenas cargue la página
+window.addEventListener("load", tryPlayAudio);
+
+// Si el navegador lo bloqueó, arrancarlo automáticamente con el primer clic, toque o tecla
+function unlockAudio() {
+  if (!audioStarted && bgm.paused) {
+    tryPlayAudio();
+  }
+  if (audioStarted) {
+    removeEventListener("pointerdown", unlockAudio);
+    removeEventListener("keydown", unlockAudio);
+  }
+}
+addEventListener("pointerdown", unlockAudio);
+addEventListener("keydown", unlockAudio);
+
+// Botón manual para pausar/reanudar
+musicBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  if (bgm.paused) {
+    bgm.play().then(() => { audioStarted = true; updateMusicBtn(); });
+  } else {
+    bgm.pause();
+    updateMusicBtn();
+  }
+});
+
+/* ===== CONFIGURACIÓN ===== */
+const NAME   = "Cindy";
+const HEART  = "💓";
+const EMOJIS = ["💓","💗","💖","❤️","💕","🤍","🩷"];
+const TINTED = ["♡","♥"];                                   // estos sí cambian de color
+const COLORS = ["#ffffff","#ffffff","#ffd1dc","#ff80ab","#ff4d6d","#ff1744","#ff6b5e"];
+const FONT   = f => `800 ${f}px Poppins,"Segoe UI",system-ui,sans-serif`;
+const MAX_PARTICLES = 450;                                  // se ajusta solo si hay lag
+
+/* ===== BASE ===== */
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d", { alpha: false });
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 1.5);        // más liviano en pantallas retina
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+}
+addEventListener("resize", resize); resize();
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+
+/* ===== SPRITES: cada nombre/corazón se dibuja UNA vez y luego solo se copia ===== */
+const BASE = 80;
+function makeSprite(txt, color) {
+  const m = document.createElement("canvas"), g = m.getContext("2d");
+  g.font = FONT(BASE);
+  const w = Math.ceil(g.measureText(txt).width) + 16, h = Math.round(BASE * 1.5);
+  m.width = w; m.height = h;
+  g.font = FONT(BASE); g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = color || "#fff";
+  g.fillText(txt, w / 2, h / 2);
+  return { c: m, w, h };
+}
+let NAMES = [], HEARTS = [], GLOW;
+function buildSprites() {
+  NAMES  = COLORS.map(c => makeSprite(NAME, c));
+  HEARTS = EMOJIS.map(e => makeSprite(e));
+  [...new Set(COLORS)].forEach(c => TINTED.forEach(s => HEARTS.push(makeSprite(s, c))));
+  GLOW = document.createElement("canvas"); GLOW.width = GLOW.height = 256;
+  const g = GLOW.getContext("2d"), r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  r.addColorStop(0, "rgba(255,40,90,.55)"); r.addColorStop(1, "rgba(255,40,90,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 256, 256);
+}
+
+/* ===== PARTÍCULAS ===== */
+class P {
+  constructor(x, y, burst) {
+    const heart = Math.random() < .45;
+    this.s = heart ? pick(HEARTS) : pick(NAMES);
+    this.heart = heart;
+    const base = Math.min(W, H) / 22;
+    this.sc = (heart ? rnd(.7, 1.7) : rnd(.6, 1.5)) * base / BASE;
+    const a = rnd(0, 6.283), v = (burst ? rnd(2, 7) : rnd(.15, 1.1)) * (.6 + this.sc * 14);
+    this.x = x; this.y = y;
+    this.vx = Math.cos(a) * v; this.vy = Math.sin(a) * v - (burst ? 1.2 : .15);
+    this.max = this.life = rnd(140, 280);
+    this.ph = rnd(0, 6.283);
+  }
+  draw(t, dt) {
+    this.life -= dt;
+    this.x += (this.vx + Math.sin(t * .03 + this.ph) * .25) * dt;
+    this.y += this.vy * dt;
+    const f = Math.pow(.995, dt); this.vx *= f; this.vy *= f;
+    const k = 1 - this.life / this.max;
+    ctx.globalAlpha = clamp(k / .12) * clamp((1 - k) / .4);
+    const sc = this.sc * (.88 + .12 * Math.sin(t * .1 + this.ph)), w = this.s.w * sc, h = this.s.h * sc;
+    if (this.heart) {                                       // los corazones se balancean un poco
+      const r = Math.sin(t * .04 + this.ph) * .25, co = Math.cos(r) * DPR, si = Math.sin(r) * DPR;
+      ctx.setTransform(co, si, -si, co, this.x * DPR, this.y * DPR);
+      ctx.drawImage(this.s.c, -w / 2, -h / 2, w, h);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    } else {
+      ctx.drawImage(this.s.c, this.x - w / 2, this.y - h / 2, w, h);
+    }
+    return this.life > 0;
+  }
+}
+
+/* ===== ESTADO ===== */
+let ps = [], t = 0, last = 0, surge = 0, hint = 1, cap = MAX_PARTICLES, fAcc = 0, fN = 0;
+const spawnAt = (x, y, n, burst) => { for (let i = 0; i < n && ps.length < cap + 80; i++) ps.push(new P(x, y, burst)); };
+
+/* ===== EVENTOS ===== */
+let down = false, lastMove = 0;
+cv.addEventListener("pointerdown", e => { down = true; spawnAt(e.clientX, e.clientY, 35, true); });
+addEventListener("pointerup", () => down = false);
+cv.addEventListener("pointermove", e => {
+  const n = performance.now(); if (n - lastMove < 40) return; lastMove = n;
+  spawnAt(e.clientX, e.clientY, down ? 3 : 1, down);
+});
+addEventListener("keydown", e => {
+  if (e.code === "Space") { e.preventDefault(); surge = 120; }
+  if (e.key === "f" || e.key === "F") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+});
+
+/* ===== TÍTULO ===== */
+const CYCLE = [[255,255,255],[255,190,210],[255,107,107],[255,23,68],[255,128,171]];
+function cycle(t) {
+  const u = (t * .012) % CYCLE.length, i = Math.floor(u), f = u - i;
+  const A = CYCLE[i], B = CYCLE[(i + 1) % CYCLE.length];
+  return `rgb(${Math.round(A[0] + (B[0] - A[0]) * f)},${Math.round(A[1] + (B[1] - A[1]) * f)},${Math.round(A[2] + (B[2] - A[2]) * f)})`;
+}
+
+/* ===== BUCLE ===== */
+let pulseT = 0;
+function frame(now) {
+  const ms = last ? now - last : 16.7; last = now;
+  const dt = clamp(ms / 16.667, .2, 3); t += dt;
+
+  // Calidad adaptativa: si hay lag baja partículas, si va fluido las sube
+  fAcc += ms; if (++fN === 45) {
+    const avg = fAcc / fN;
+    if (avg > 24) cap = Math.max(120, cap * .8); else if (avg < 18.5) cap = Math.min(MAX_PARTICLES, cap * 1.1);
+    fAcc = fN = 0;
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(0,0,0,.3)";                         // estela
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H / 2, ramp = clamp((t - 80) / 260);
+
+  // Brillo detrás del título
+  const beat = 1 + .06 * Math.sin(t * .12) + .03 * Math.sin(t * .24);
+  const gs = Math.min(W, H) * (1.1 + .1 * Math.sin(t * .1));
+  ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = .55;
+  ctx.drawImage(GLOW, cx - gs / 2, cy - gs / 2, gs, gs);
+  ctx.globalCompositeOperation = "source-over";
+
+  // Nuevas partículas (de a poco) + pulso desde el centro cada ~3 s
+  let rate = ramp * 4 + (surge > 0 ? 7 : 0); if (surge > 0) surge -= dt;
+  let n = Math.floor(rate * dt) + (Math.random() < (rate * dt) % 1 ? 1 : 0);
+  while (n-- > 0 && ps.length < cap) ps.push(new P(cx + rnd(-W * .42, W * .42), cy + rnd(-H * .4, H * .4), false));
+  pulseT += dt;
+  if (ramp >= 1 && pulseT > 190) { pulseT = 0; spawnAt(cx, cy, 22, true); }
+
+  // Dibujar partículas (se eliminan sin crear arreglos nuevos)
+  for (let i = ps.length - 1; i >= 0; i--) {
+    if (!ps[i].draw(t, dt)) { ps[i] = ps[ps.length - 1]; ps.pop(); }
+  }
+
+  // Título: nombre + corazón latiendo
+  ctx.globalAlpha = 1; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  const fs = Math.min(W * .15, H * .22) * beat;
+  ctx.font = FONT(fs);
+  const nw = ctx.measureText(NAME).width, gap = fs * .3, ew = fs * 1.05;
+  const x0 = cx - (nw + gap + ew) / 2;
+  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillText(NAME, x0 + fs * .04, cy + fs * .05); // sombra para leerse sobre el caos
+  ctx.fillStyle = cycle(t); ctx.fillText(NAME, x0, cy);
+  ctx.font = FONT(fs * (1 + .1 * Math.max(0, Math.sin(t * .12))));
+  ctx.fillText(HEART, x0 + nw + gap, cy);
+
+  // Ayuda que se desvanece
+  if (t > 360) hint = Math.max(0, hint - .01 * dt);
+  if (hint > 0) {
+    ctx.globalAlpha = hint * .6; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    ctx.font = "13px system-ui, sans-serif";
+    ctx.fillText("Clic: explosión · Espacio: más corazones · F: pantalla completa", cx, H - 24);
+  }
+  requestAnimationFrame(frame);
+}
+
+// Esperar a que cargue la letra (máx. 1.5 s) y arrancar
+Promise.race([document.fonts.load(FONT(BASE), NAME), new Promise(r => setTimeout(r, 1500))])
+  .catch(() => {}).then(() => { buildSprites(); requestAnimationFrame(frame); });
+</script>
+</body>
+</html>
